@@ -64,7 +64,6 @@ io.on('connection', (socket) => {
             topic: quizQuestions[room.currentQuestionIdx].topic
         });
 
-        // 20 Second Wager Timer Initiation
         let timeLeft = 20;
         io.to(roomCode).emit('timerUpdate', { duration: 20, remaining: timeLeft, stage: "Wagering" });
         
@@ -91,21 +90,19 @@ io.on('connection', (socket) => {
         if (!room) return;
         clearInterval(room.timerInterval);
 
-        // Force fallback wagers for any slacking teams
         Object.keys(room.teams).forEach(name => {
             if (room.teams[name].currentWager === null) {
                 let fallback = 1;
                 while (room.teams[name].wagersUsed.includes(fallback) && fallback <= 10) { fallback++; }
                 room.teams[name].currentWager = fallback;
                 room.teams[name].wagersUsed.push(fallback);
-                io.to(room.hostId).emit('teamWageredUpdate', { teamName, wager: fallback });
+                io.to(room.hostId).emit('teamWageredUpdate', { teamName: name, wager: fallback });
                 io.to(room.teams[name].socketId).emit('forcedWager', { wager: fallback });
             }
         });
 
         io.to(roomCode).emit('questionRevealed', { question: quizQuestions[room.currentQuestionIdx].question });
 
-        // 60 Second Answering Timer Initiation
         let timeLeft = 60;
         io.to(roomCode).emit('timerUpdate', { duration: 60, remaining: timeLeft, stage: "Answering" });
 
@@ -136,3 +133,11 @@ io.on('connection', (socket) => {
     });
 
     socket.on('advanceQuestionIndex', ({ roomCode }) => {
+        const room = rooms[roomCode];
+        if (room) {
+            clearInterval(room.timerInterval);
+            room.currentQuestionIdx++;
+        }
+    });
+});
+
