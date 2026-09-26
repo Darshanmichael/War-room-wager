@@ -24,6 +24,11 @@
         button:hover { opacity: 0.9; }
         input { padding: 14px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 16px; margin-bottom: 15px; width: 100%; }
         
+        /* Timers */
+        .timer-container { width: 100%; background: #0f172a; border-radius: 8px; padding: 4px; margin-bottom: 20px; border: 1px solid #334155; }
+        .timer-bar { height: 16px; width: 100%; background: linear-gradient(to right, #ef4444, #f59e0b, #10b981); border-radius: 6px; transition: width 1s linear; }
+        .timer-text { text-align: center; font-weight: bold; margin-top: 5px; font-size: 14px; }
+
         .wager-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 20px 0; }
         .wager-btn { background: #334155; color: white; font-size: 18px; padding: 15px 0; border: 1px solid #475569; }
         .wager-btn:disabled { background: #0f172a; color: #475569; text-decoration: line-through; cursor: not-allowed; border: 1px dashed #334155; }
@@ -39,10 +44,18 @@
 <body>
 
 <div class="app-container">
+    <!-- TIMER BAR -->
+    <div id="global-timer-zone" class="hidden">
+        <div class="timer-container">
+            <div id="timer-progress" class="timer-bar"></div>
+        </div>
+        <div class="timer-text" id="timer-label">Stage: Loading... 0s left</div>
+    </div>
+
     <!-- ROLE SELECT -->
     <div id="setup-view">
         <h1 style="text-align: center; color: #fbbf24; font-size: 32px; letter-spacing: 1px;">WAR ROOM WAGER</h1>
-        <p style="text-align: center; margin-bottom: 35px; color: var(--text-muted);">MBA-Level Interactive Quiz Competition</p>
+        <p style="text-align: center; margin-bottom: 35px; color: var(--text-muted);">MBA-Level Timed Quiz Competition</p>
         <div style="display: flex; gap: 20px;">
             <button onclick="initHost()" style="flex: 1; background: var(--accent-blue); color: white; font-size: 18px; padding: 25px;">Join as Host</button>
             <button onclick="showTeamForm()" style="flex: 1; background: var(--accent-green); color: white; font-size: 18px; padding: 25px;">Join as Team</button>
@@ -72,7 +85,7 @@
             <div class="card" id="host-question-preview" style="text-align: left; background: #0f172a; border-color:#334155;"></div>
             
             <div style="margin-bottom: 25px; display: flex; gap: 15px;">
-                <button onclick="hostRevealQuestion()" id="reveal-q-btn" style="background: #fbbf24; color: black;">Broadcast Question to Teams</button>
+                <button onclick="hostRevealQuestion()" id="reveal-q-btn" style="background: #fbbf24; color: black;">Broadcast Question (Starts 60s Answer Timer)</button>
                 <button onclick="hostNextRound()" id="next-round-btn" style="background: var(--accent-blue); color: white;" class="hidden">Advance to Next Topic</button>
             </div>
 
@@ -91,7 +104,7 @@
         <h2>Team Terminal: Awaiting Identity...</span></h2>
         
         <div id="team-wait-screen" class="card" style="text-align:center; margin-top:20px;">
-            <p>Stand by. Waiting for Host to initiate the broad category round...</p>
+            <p>Stand by. Waiting for Host to initiate the round...</p>
         </div>
 
         <!-- STAGE 1: THE WAGER GRID -->
@@ -101,7 +114,7 @@
                 <p style="color: var(--text-muted); font-size: 12px; letter-spacing:1px; margin-bottom:5px;">BROAD TOPIC CONTEXT</p>
                 <h2 id="team-topic-display">-</h2>
             </div>
-            <p>Select your wager point value. Columns are structured 1-5 and 6-10 (Values are cross-eliminated after use):</p>
+            <p>Select your wager point value (20 seconds max):</p>
             <div class="wager-grid" id="wager-buttons-root"></div>
             <button id="lock-wager-submit-btn" onclick="submitWager()" style="width:100%; background: var(--accent-blue); color:white; padding:15px;" disabled>Lock & Confirm Wager</button>
         </div>
@@ -110,7 +123,7 @@
         <div id="team-question-zone" class="hidden">
             <div class="card" style="text-align: left; background:#0f172a; border-color:#334155;" id="team-question-body"></div>
             <input type="text" id="team-answer-field" placeholder="Type your full team solution/answer here...">
-            <button onclick="submitAnswer()" style="width:100%; background: var(--accent-green); color:white; padding:15px;">Transmit Answer to Host</button>
+            <button id="submit-answer-btn" onclick="submitAnswer()" style="width:100%; background: var(--accent-green); color:white; padding:15px;">Transmit Answer to Host</button>
         </div>
     </div>
 </div>
@@ -155,28 +168,13 @@
 
     socket.on('joinError', (msg) => { alert(msg); });
 
+    socket.on('timerUpdate', ({ duration, remaining, stage }) => {
+        document.getElementById('global-timer-zone').classList.remove('hidden');
+        const percentage = (remaining / duration) * 100;
+        document.getElementById('timer-progress').style.width = percentage + '%';
+        document.getElementById('timer-label').textContent = `${stage} Phase: ${remaining}s remaining`;
+    });
+
     socket.on('updateTeamsList', (teamsArr) => {
         if (myRole !== 'host') return;
         const list = document.getElementById('connected-teams-list');
-        list.innerHTML = teamsArr.map(t => `<li>⚡ <b>${t.name}</b> Status Active — Cumulative Score: <b>${t.score} pts</b></li>`).join('');
-        
-        teamsArr.forEach(t => {
-            const scoreLabel = document.getElementById(`score-label-${t.name}`);
-            if(scoreLabel) scoreLabel.textContent = `${t.score} pts`;
-        });
-    });
-
-    function hostStartQuiz() {
-        document.getElementById('host-lobby-panel').classList.add('hidden');
-        document.getElementById('host-active-round-panel').classList.remove('hidden');
-        hostNextRound();
-    }
-
-    socket.on('roundStarted', ({ questionNumber, topic }) => {
-        if (myRole !== 'team') return;
-        document.getElementById('team-wait-screen').classList.add('hidden');
-        document.getElementById('team-question-zone').classList.add('hidden');
-        document.getElementById('team-wager-zone').classList.remove('hidden');
-        
-        document.getElementById('team-round-num').textContent = `Round Question ${questionNumber} of 10`;
-        document.getElementById('team-topic-display').textContent = topic;
