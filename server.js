@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>War Room Wager Arena</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { background-color: var(--bg-dark); color: var(--text-main); padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .app-container { width: 100%; max-width: 850px; background-color: var(--bg-card); border-radius: 12px; padding: 30px; border: 1px solid #334155; box-shadow: 0 10px 30px rgba(0,0,0,0.4); }
+        .hidden { display: none !important; }
+        h1, h2, h3 { margin-bottom: 15px; font-weight: 700; }
+        button { cursor: pointer; padding: 12px 20px; font-weight: bold; border-radius: 6px; border: none; transition: all 0.2s; }
+        button:hover { opacity: 0.9; }
+        input { padding: 14px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 16px; margin-bottom: 15px; width: 100%; }
+        
+        .wager-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 20px 0; }
+        .wager-btn { background: #334155; color: white; font-size: 18px; padding: 15px 0; border: 1px solid #475569; }
+        .wager-btn:disabled { background: #0f172a; color: #475569; text-decoration: line-through; cursor: not-allowed; border: 1px dashed #334155; }
+        .wager-btn.selected { background: var(--accent-blue); border-color: #60a5fa; }
+        
+        .card { background: #1e1b4b; border: 1px solid #4338ca; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .matrix-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #0f172a; }
+        .matrix-table th, .matrix-table td { padding: 14px; border: 1px solid #334155; text-align: left; }
+        .matrix-table th { background: #111827; color: var(--text-muted); }
+        .action-row { display: flex; gap: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <!-- ROLE SELECT -->
+    <div id="setup-view">
+        <h1 style="text-align: center; color: #fbbf24; font-size: 32px; letter-spacing: 1px;">WAR ROOM WAGER</h1>
+        <p style="text-align: center; margin-bottom: 35px; color: var(--text-muted);">MBA-Level Interactive Quiz Competition</p>
+        <div style="display: flex; gap: 20px;">
+            <button onclick="initHost()" style="flex: 1; background: var(--accent-blue); color: white; font-size: 18px; padding: 25px;">Join as Host</button>
+            <button onclick="showTeamForm()" style="flex: 1; background: var(--accent-green); color: white; font-size: 18px; padding: 25px;">Join as Team</button>
+        </div>
+    </div>
+
+    <!-- TEAM SIGN IN -->
+    <div id="team-join-view" class="hidden">
+        <h2>Enter Wager Arena Lobby</h2>
+        <input type="text" id="join-code-input" placeholder="6-Digit Room Code Provided by Host">
+        <input type="text" id="team-name-input" placeholder="Enter Your Team Name">
+        <button onclick="submitJoinTeam()" style="background: var(--accent-green); color: white; width: 100%; padding: 15px; font-size: 16px;">Connect & Validate</button>
+    </div>
+
+    <!-- HOST CONTAINER -->
+    <div id="host-dashboard" class="hidden">
+        <h2>Host Command Console <span style="float: right; color: #fbbf24;" id="host-room-display">Lobby Code: ------</span></h2>
+        
+        <div id="host-lobby-panel" class="card" style="background:#0f172a; border-color:#334155;">
+            <h3>Connected Teams Awaiting Launch</h3>
+            <ul id="connected-teams-list" style="margin: 15px 0; padding-left: 20px; line-height: 2;"></ul>
+            <button onclick="hostStartQuiz()" style="background: var(--accent-blue); color: white; width: 100%; padding: 15px;">Launch Quiz Arena</button>
+        </div>
+
+        <div id="host-active-round-panel" class="hidden">
+            <h3 id="host-round-title">Question Tracking Matrix</h3>
+            <div class="card" id="host-question-preview" style="text-align: left; background: #0f172a; border-color:#334155;"></div>
+            
+            <div style="margin-bottom: 25px; display: flex; gap: 15px;">
+                <button onclick="hostRevealQuestion()" id="reveal-q-btn" style="background: #fbbf24; color: black;">Broadcast Question to Teams</button>
+                <button onclick="hostNextRound()" id="next-round-btn" style="background: var(--accent-blue); color: white;" class="hidden">Advance to Next Topic</button>
+            </div>
+
+            <h3>Live Answers & Scoring Evaluations</h3>
+            <table class="matrix-table">
+                <thead>
+                    <tr><th>Team Profile</th><th>Wagered</th><th>Submitted Answer Text</th><th>Host Action</th></tr>
+                </thead>
+                <tbody id="evaluation-matrix-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- PLAYER/TEAM CONTAINER -->
+    <div id="team-dashboard" class="hidden">
+        <h2>Team Terminal: Awaiting Identity...</span></h2>
+        
+        <div id="team-wait-screen" class="card" style="text-align:center; margin-top:20px;">
+            <p>Stand by. Waiting for Host to initiate the broad category round...</p>
+        </div>
+
+        <!-- STAGE 1: THE WAGER GRID -->
+        <div id="team-wager-zone" class="hidden">
+            <h3 id="team-round-num" style="color:#fbbf24;">Round Tracking</h3>
+            <div class="card" style="text-align: center;">
+                <p style="color: var(--text-muted); font-size: 12px; letter-spacing:1px; margin-bottom:5px;">BROAD TOPIC CONTEXT</p>
+                <h2 id="team-topic-display">-</h2>
+            </div>
+            <p>Select your wager point value. Columns are structured 1-5 and 6-10 (Values are cross-eliminated after use):</p>
+            <div class="wager-grid" id="wager-buttons-root"></div>
+            <button id="lock-wager-submit-btn" onclick="submitWager()" style="width:100%; background: var(--accent-blue); color:white; padding:15px;" disabled>Lock & Confirm Wager</button>
+        </div>
+
+        <!-- STAGE 2: SUBMIT TEXT ANSWER -->
+        <div id="team-question-zone" class="hidden">
+            <div class="card" style="text-align: left; background:#0f172a; border-color:#334155;" id="team-question-body"></div>
+            <input type="text" id="team-answer-field" placeholder="Type your full team solution/answer here...">
+            <button onclick="submitAnswer()" style="width:100%; background: var(--accent-green); color:white; padding:15px;">Transmit Answer to Host</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let myRole = '';
+    let currentRoomCode = '';
+    let myTeamName = '';
+    let selectedWagerValue = null;
+    let localWagersUsed = [];
+    let serverQuestionsRef = [];
+    let currentQuestionIdx = 0;
+
+    function initHost() { myRole = 'host'; socket.emit('createRoom'); }
+    function showTeamForm() {
+        document.getElementById('setup-view').classList.add('hidden');
+        document.getElementById('team-join-view').classList.remove('hidden');
+    }
+    function submitJoinTeam() {
+        currentRoomCode = document.getElementById('join-code-input').value.trim();
+        myTeamName = document.getElementById('team-name-input').value.trim();
+        if(currentRoomCode && myTeamName) {
+            socket.emit('joinRoom', { roomCode: currentRoomCode, teamName: myTeamName });
+        }
+    }
+
+    socket.on('roomCreated', ({ roomCode, questions }) => {
+        currentRoomCode = roomCode;
+        serverQuestionsRef = questions;
+        document.getElementById('setup-view').classList.add('hidden');
+        document.getElementById('host-dashboard').classList.remove('hidden');
+        document.getElementById('host-room-display').textContent = `Lobby Code: ${roomCode}`;
+    });
+
+    socket.on('joinSuccess', ({ roomCode, teamName }) => {
+        myRole = 'team';
+        document.getElementById('team-join-view').classList.add('hidden');
+        document.getElementById('team-dashboard').classList.remove('hidden');
+        document.getElementById('team-identity').textContent = teamName;
+    });
+
+    socket.on('joinError', (msg) => { alert(msg); });
+
+    socket.on('updateTeamsList', (teamsArr) => {
+        if (myRole !== 'host') return;
+        const list = document.getElementById('connected-teams-list');
+        list.innerHTML = teamsArr.map(t => `<li>⚡ <b>${t.name}</b> Status Active — Cumulative Score: <b>${t.score} pts</b></li>`).join('');
+        
+        teamsArr.forEach(t => {
+            const scoreLabel = document.getElementById(`score-label-${t.name}`);
+            if(scoreLabel) scoreLabel.textContent = `${t.score} pts`;
+        });
+    });
+
+    function hostStartQuiz() {
+        document.getElementById('host-lobby-panel').classList.add('hidden');
+        document.getElementById('host-active-round-panel').classList.remove('hidden');
+        hostNextRound();
+    }
+
+    socket.on('roundStarted', ({ questionNumber, topic }) => {
+        if (myRole !== 'team') return;
+        document.getElementById('team-wait-screen').classList.add('hidden');
+        document.getElementById('team-question-zone').classList.add('hidden');
+        document.getElementById('team-wager-zone').classList.remove('hidden');
+        
+        document.getElementById('team-round-num').textContent = `Round Question ${questionNumber} of 10`;
+        document.getElementById('team-topic-display').textContent = topic;
