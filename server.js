@@ -5,9 +5,7 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: { origin: "*" }
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
 const PORT = process.env.PORT || 10000;
 
@@ -18,7 +16,6 @@ app.get('/', (req, res) => {
 
 const rooms = {};
 
-// EXACT 10 QUESTION BANK
 const quizQuestions = [
     { id: 1, topic: "Derivatives & Risk", question: "I am a second-order Greek, which means I don't measure price sensitivity directly — I measure how another sensitivity measure itself changes. Specifically, I track how much an option's delta shifts for every one-rupee or one-dollar move in the price of the underlying asset. I am at my highest when an option is at-the-money and close to expiry... What am I?", answer: "Gamma" },
     { id: 2, topic: "Financial Crises & Policy", question: "In March of a certain year, a storied 85-year-old investment bank avoids collapse only through a Federal Reserve–brokered fire sale to a larger rival... Six months later, in September, a nearly as old investment bank is denied a similar rescue and is allowed to file for the largest bankruptcy in US history... Weeks later, Congress authorizes a \$700 billion program explicitly designed to purchase distressed mortgage-backed assets. Name this October program.", answer: "TARP (Troubled Asset Relief Program)" },
@@ -143,3 +140,5 @@ io.on('connection', (socket) => {
             room.currentQuestionIdx++;
         }
     });
+});
+
