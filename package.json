@@ -1,7 +1,7 @@
 {
-  "name": "war-room-wager",
+  "name": "war-room-wager-timed",
   "version": "1.0.0",
-  "description": "Multiplayer Wager Round Quiz Competition Arena",
+  "description": "Multiplayer Timed Wager Quiz Competition Arena",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,3 +11,4 @@
     "socket.io": "^4.7.5"
   }
 }
+

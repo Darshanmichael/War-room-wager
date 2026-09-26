@@ -1,182 +1,138 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>War Room Wager Arena</title>
-    <script src="/socket.io/socket.io.js"></script>
-    <style>
-        :root {
-            --bg-dark: #0f172a;
-            --bg-card: #1e293b;
-            --accent-blue: #3b82f6;
-            --accent-green: #10b981;
-            --accent-red: #ef4444;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-        body { background-color: var(--bg-dark); color: var(--text-main); padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .app-container { width: 100%; max-width: 850px; background-color: var(--bg-card); border-radius: 12px; padding: 30px; border: 1px solid #334155; box-shadow: 0 10px 30px rgba(0,0,0,0.4); }
-        .hidden { display: none !important; }
-        h1, h2, h3 { margin-bottom: 15px; font-weight: 700; }
-        button { cursor: pointer; padding: 12px 20px; font-weight: bold; border-radius: 6px; border: none; transition: all 0.2s; }
-        button:hover { opacity: 0.9; }
-        input { padding: 14px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 16px; margin-bottom: 15px; width: 100%; }
-        
-        .wager-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 20px 0; }
-        .wager-btn { background: #334155; color: white; font-size: 18px; padding: 15px 0; border: 1px solid #475569; }
-        .wager-btn:disabled { background: #0f172a; color: #475569; text-decoration: line-through; cursor: not-allowed; border: 1px dashed #334155; }
-        .wager-btn.selected { background: var(--accent-blue); border-color: #60a5fa; }
-        
-        .card { background: #1e1b4b; border: 1px solid #4338ca; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        .matrix-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #0f172a; }
-        .matrix-table th, .matrix-table td { padding: 14px; border: 1px solid #334155; text-align: left; }
-        .matrix-table th { background: #111827; color: var(--text-muted); }
-        .action-row { display: flex; gap: 8px; }
-    </style>
-</head>
-<body>
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path');
 
-<div class="app-container">
-    <!-- ROLE SELECT -->
-    <div id="setup-view">
-        <h1 style="text-align: center; color: #fbbf24; font-size: 32px; letter-spacing: 1px;">WAR ROOM WAGER</h1>
-        <p style="text-align: center; margin-bottom: 35px; color: var(--text-muted);">MBA-Level Interactive Quiz Competition</p>
-        <div style="display: flex; gap: 20px;">
-            <button onclick="initHost()" style="flex: 1; background: var(--accent-blue); color: white; font-size: 18px; padding: 25px;">Join as Host</button>
-            <button onclick="showTeamForm()" style="flex: 1; background: var(--accent-green); color: white; font-size: 18px; padding: 25px;">Join as Team</button>
-        </div>
-    </div>
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 
-    <!-- TEAM SIGN IN -->
-    <div id="team-join-view" class="hidden">
-        <h2>Enter Wager Arena Lobby</h2>
-        <input type="text" id="join-code-input" placeholder="6-Digit Room Code Provided by Host">
-        <input type="text" id="team-name-input" placeholder="Enter Your Team Name">
-        <button onclick="submitJoinTeam()" style="background: var(--accent-green); color: white; width: 100%; padding: 15px; font-size: 16px;">Connect & Validate</button>
-    </div>
+const PORT = process.env.PORT || 3000;
 
-    <!-- HOST CONTAINER -->
-    <div id="host-dashboard" class="hidden">
-        <h2>Host Command Console <span style="float: right; color: #fbbf24;" id="host-room-display">Lobby Code: ------</span></h2>
-        
-        <div id="host-lobby-panel" class="card" style="background:#0f172a; border-color:#334155;">
-            <h3>Connected Teams Awaiting Launch</h3>
-            <ul id="connected-teams-list" style="margin: 15px 0; padding-left: 20px; line-height: 2;"></ul>
-            <button onclick="hostStartQuiz()" style="background: var(--accent-blue); color: white; width: 100%; padding: 15px;">Launch Quiz Arena</button>
-        </div>
+app.use(express.static(__dirname));
+app.get('/', (req, res) => { res.sendFile(path.join(__dirname, 'index.html')); });
 
-        <div id="host-active-round-panel" class="hidden">
-            <h3 id="host-round-title">Question Tracking Matrix</h3>
-            <div class="card" id="host-question-preview" style="text-align: left; background: #0f172a; border-color:#334155;"></div>
-            
-            <div style="margin-bottom: 25px; display: flex; gap: 15px;">
-                <button onclick="hostRevealQuestion()" id="reveal-q-btn" style="background: #fbbf24; color: black;">Broadcast Question to Teams</button>
-                <button onclick="hostNextRound()" id="next-round-btn" style="background: var(--accent-blue); color: white;" class="hidden">Advance to Next Topic</button>
-            </div>
+const rooms = {};
 
-            <h3>Live Answers & Scoring Evaluations</h3>
-            <table class="matrix-table">
-                <thead>
-                    <tr><th>Team Profile</th><th>Wagered</th><th>Submitted Answer Text</th><th>Host Action</th></tr>
-                </thead>
-                <tbody id="evaluation-matrix-body"></tbody>
-            </table>
-        </div>
-    </div>
+// EXACT 10 QUESTION BANK
+const quizQuestions = [
+    { id: 1, topic: "Derivatives & Risk", question: "I am a second-order Greek, which means I don't measure price sensitivity directly — I measure how another sensitivity measure itself changes. Specifically, I track how much an option's delta shifts for every one-rupee or one-dollar move in the price of the underlying asset. I am at my highest when an option is at-the-money and close to expiry... What am I?", answer: "Gamma" },
+    { id: 2, topic: "Financial Crises & Policy", question: "In March of a certain year, a storied 85-year-old investment bank avoids collapse only through a Federal Reserve–brokered fire sale to a larger rival... Six months later, in September, a nearly as old investment bank is denied a similar rescue and is allowed to file for the largest bankruptcy in US history... Weeks later, Congress authorizes a \$700 billion program explicitly designed to purchase distressed mortgage-backed assets. Name this October program.", answer: "TARP (Troubled Asset Relief Program)" },
+    { id: 3, topic: "Valuation", question: "A student lists four tools he plans to use to value a company before its IPO: P/E Multiple, EV/EBITDA, P/B Ratio, and Dividend Discount Model. Three of these four tools belong to the same broad valuation family; one stands apart because it derives value independently rather than by comparison. Identify the odd one out, and name the approach the other three share.", answer: "Dividend Discount Model is the odd one out (Intrinsic Valuation). The other three are Relative Valuation Multiples." },
+    { id: 4, topic: "Monetary Policy", question: "This is the interest rate at which a country's central bank lends short-term funds to commercial banks, against the collateral of government securities, with an agreement that the banks will repurchase those securities at a later date. When a central bank wants to control inflation by making borrowing more expensive, this is typically the first lever it pulls. Which rate is being described?", answer: "Repo Rate" },
+    { id: 5, topic: "Corporate Finance — WACC", question: "A firm is capitalized with 60% equity and 40% debt, based on market values. Its cost of equity is 12%. Its pre-tax cost of debt is 10%. The firm operates in a jurisdiction where the corporate tax rate is 30%, and interest payments are tax-deductible. What single weighted metric (WACC) do these combine to produce?", answer: "10% [Calculation: (0.6 * 12%) + (0.4 * 10% * (1 - 0.3)) = 7.2% + 2.8%]" },
+    { id: 6, topic: "Asset Pricing Models", question: "In the single-factor world of the Capital Asset Pricing Model, an asset's expected return is explained entirely by its sensitivity to one variable: systematic risk. Decades later, two researchers observed that smaller companies and value companies consistently outperformed predictions. Exactly as CAPM is to Systematic Risk, the model these two researchers built (Fama-French) to correct it is to ___?", answer: "Size and Value factors (SMB — Small Minus Big, and HML — High Minus Low)" },
+    { id: 7, topic: "Corporate Finance", question: "A finance student represents a single formula using three symbols: A weighing scale (representing proportion), a stack of currency notes (representing cost), and a bank building (representing capital). ⚖️ + 💵 + 🏦 = ? What four-letter acronym central to DCF valuations is she illustrating?", answer: "WACC (Weighted Average Cost of Capital)" },
+    { id: 8, topic: "Behavioral Economics", question: "He was trained as a psychologist, not an economist, yet in 2002 he won the Nobel Memorial Prize in Economic Sciences. His 2011 book summaries research for a general audience and contrasts two modes of human thinking — one fast and intuitive, the other slow and deliberate. Who is he?", answer: "Daniel Kahneman" },
+    { id: 9, topic: "Mergers & Acquisitions", question: "This is a defensive tactic a target company's board can adopt under which existing shareholders become entitled to purchase additional shares at a steep discount the moment a hostile acquirer's stake crosses a threshold, diluting their stake. It is colloquially named after a lethal substance. What is it?", answer: "Poison Pill (Shareholder Rights Plan)" },
+    { id: 10, topic: "Technical Analysis", question: "A chart pattern displays a sharp, near-vertical price move upward, followed by a small, tightly-converging symmetrical triangle of consolidation, followed by another sharp breakout continuing in the same original direction. Name this classic continuation pattern.", answer: "Pennant (or Flag) Pattern" }
+];
 
-    <!-- PLAYER/TEAM CONTAINER -->
-    <div id="team-dashboard" class="hidden">
-        <h2>Team Terminal: Awaiting Identity...</span></h2>
-        
-        <div id="team-wait-screen" class="card" style="text-align:center; margin-top:20px;">
-            <p>Stand by. Waiting for Host to initiate the broad category round...</p>
-        </div>
-
-        <!-- STAGE 1: THE WAGER GRID -->
-        <div id="team-wager-zone" class="hidden">
-            <h3 id="team-round-num" style="color:#fbbf24;">Round Tracking</h3>
-            <div class="card" style="text-align: center;">
-                <p style="color: var(--text-muted); font-size: 12px; letter-spacing:1px; margin-bottom:5px;">BROAD TOPIC CONTEXT</p>
-                <h2 id="team-topic-display">-</h2>
-            </div>
-            <p>Select your wager point value. Columns are structured 1-5 and 6-10 (Values are cross-eliminated after use):</p>
-            <div class="wager-grid" id="wager-buttons-root"></div>
-            <button id="lock-wager-submit-btn" onclick="submitWager()" style="width:100%; background: var(--accent-blue); color:white; padding:15px;" disabled>Lock & Confirm Wager</button>
-        </div>
-
-        <!-- STAGE 2: SUBMIT TEXT ANSWER -->
-        <div id="team-question-zone" class="hidden">
-            <div class="card" style="text-align: left; background:#0f172a; border-color:#334155;" id="team-question-body"></div>
-            <input type="text" id="team-answer-field" placeholder="Type your full team solution/answer here...">
-            <button onclick="submitAnswer()" style="width:100%; background: var(--accent-green); color:white; padding:15px;">Transmit Answer to Host</button>
-        </div>
-    </div>
-</div>
-
-<script>
-    const socket = io();
-    let myRole = '';
-    let currentRoomCode = '';
-    let myTeamName = '';
-    let selectedWagerValue = null;
-    let localWagersUsed = [];
-    let serverQuestionsRef = [];
-    let currentQuestionIdx = 0;
-
-    function initHost() { myRole = 'host'; socket.emit('createRoom'); }
-    function showTeamForm() {
-        document.getElementById('setup-view').classList.add('hidden');
-        document.getElementById('team-join-view').classList.remove('hidden');
-    }
-    function submitJoinTeam() {
-        currentRoomCode = document.getElementById('join-code-input').value.trim();
-        myTeamName = document.getElementById('team-name-input').value.trim();
-        if(currentRoomCode && myTeamName) {
-            socket.emit('joinRoom', { roomCode: currentRoomCode, teamName: myTeamName });
-        }
-    }
-
-    socket.on('roomCreated', ({ roomCode, questions }) => {
-        currentRoomCode = roomCode;
-        serverQuestionsRef = questions;
-        document.getElementById('setup-view').classList.add('hidden');
-        document.getElementById('host-dashboard').classList.remove('hidden');
-        document.getElementById('host-room-display').textContent = `Lobby Code: ${roomCode}`;
+io.on('connection', (socket) => {
+    socket.on('createRoom', () => {
+        const roomCode = Math.floor(100000 + Math.random() * 900000).toString();
+        rooms[roomCode] = { hostId: socket.id, currentQuestionIdx: 0, teams: {}, timerInterval: null };
+        socket.join(roomCode);
+        socket.emit('roomCreated', { roomCode, questions: quizQuestions });
     });
 
-    socket.on('joinSuccess', ({ roomCode, teamName }) => {
-        myRole = 'team';
-        document.getElementById('team-join-view').classList.add('hidden');
-        document.getElementById('team-dashboard').classList.remove('hidden');
-        document.getElementById('team-identity').textContent = teamName;
+    socket.on('joinRoom', ({ roomCode, teamName }) => {
+        const room = rooms[roomCode];
+        if (!room) return socket.emit('joinError', 'Invalid Room Code!');
+        if (room.teams[teamName]) return socket.emit('joinError', 'Team name taken.');
+
+        room.teams[teamName] = { socketId: socket.id, score: 0, wagersUsed: [], currentWager: null, currentAnswer: "", submittedAns: false };
+        socket.join(roomCode);
+        socket.emit('joinSuccess', { roomCode, teamName });
+        io.to(room.hostId).emit('updateTeamsList', Object.keys(room.teams).map(name => ({ name, score: room.teams[name].score })));
     });
 
-    socket.on('joinError', (msg) => { alert(msg); });
+    socket.on('nextRound', ({ roomCode }) => {
+        const room = rooms[roomCode];
+        if (!room) return;
+        clearInterval(room.timerInterval);
+        if (room.currentQuestionIdx >= quizQuestions.length) return io.to(roomCode).emit('gameOver', room.teams);
 
-    socket.on('updateTeamsList', (teamsArr) => {
-        if (myRole !== 'host') return;
-        const list = document.getElementById('connected-teams-list');
-        list.innerHTML = teamsArr.map(t => `<li>⚡ <b>${t.name}</b> Status Active — Cumulative Score: <b>${t.score} pts</b></li>`).join('');
-        
-        teamsArr.forEach(t => {
-            const scoreLabel = document.getElementById(`score-label-${t.name}`);
-            if(scoreLabel) scoreLabel.textContent = `${t.score} pts`;
+        Object.keys(room.teams).forEach(name => {
+            room.teams[name].currentWager = null;
+            room.teams[name].currentAnswer = "";
+            room.teams[name].submittedAns = false;
         });
+
+        io.to(roomCode).emit('roundStarted', {
+            questionNumber: room.currentQuestionIdx + 1,
+            topic: quizQuestions[room.currentQuestionIdx].topic
+        });
+
+        // 20 Second Wager Timer Initiation
+        let timeLeft = 20;
+        io.to(roomCode).emit('timerUpdate', { duration: 20, remaining: timeLeft, stage: "Wagering" });
+        
+        room.timerInterval = setInterval(() => {
+            timeLeft--;
+            io.to(roomCode).emit('timerUpdate', { duration: 20, remaining: timeLeft, stage: "Wagering" });
+            if (timeLeft <= 0) {
+                clearInterval(room.timerInterval);
+                io.to(room.hostId).emit('wagerTimerExpired');
+            }
+        }, 1000);
     });
 
-    function hostStartQuiz() {
-        document.getElementById('host-lobby-panel').classList.add('hidden');
-        document.getElementById('host-active-round-panel').classList.remove('hidden');
-        hostNextRound();
-    }
+    socket.on('submitWager', ({ roomCode, teamName, wager }) => {
+        const room = rooms[roomCode];
+        if (!room || !room.teams[teamName]) return;
+        room.teams[teamName].currentWager = wager;
+        room.teams[teamName].wagersUsed.push(wager);
+        io.to(room.hostId).emit('teamWageredUpdate', { teamName, wager });
+    });
 
-    socket.on('roundStarted', ({ questionNumber, topic }) => {
-        if (myRole !== 'team') return;
-        document.getElementById('team-wait-screen').classList.add('hidden');
-        document.getElementById('team-question-zone').classList.add('hidden');
-        document.getElementById('team-wager-zone').classList.remove('hidden');
+    socket.on('revealQuestion', ({ roomCode }) => {
+        const room = rooms[roomCode];
+        if (!room) return;
+        clearInterval(room.timerInterval);
+
+        // Force fallback wagers for any slacking teams
+        Object.keys(room.teams).forEach(name => {
+            if (room.teams[name].currentWager === null) {
+                let fallback = 1;
+                while (room.teams[name].wagersUsed.includes(fallback) && fallback <= 10) { fallback++; }
+                room.teams[name].currentWager = fallback;
+                room.teams[name].wagersUsed.push(fallback);
+                io.to(room.hostId).emit('teamWageredUpdate', { teamName, wager: fallback });
+                io.to(room.teams[name].socketId).emit('forcedWager', { wager: fallback });
+            }
+        });
+
+        io.to(roomCode).emit('questionRevealed', { question: quizQuestions[room.currentQuestionIdx].question });
+
+        // 60 Second Answering Timer Initiation
+        let timeLeft = 60;
+        io.to(roomCode).emit('timerUpdate', { duration: 60, remaining: timeLeft, stage: "Answering" });
+
+        room.timerInterval = setInterval(() => {
+            timeLeft--;
+            io.to(roomCode).emit('timerUpdate', { duration: 60, remaining: timeLeft, stage: "Answering" });
+            if (timeLeft <= 0) {
+                clearInterval(room.timerInterval);
+                io.to(roomCode).emit('answerTimerExpired');
+            }
+        }, 1000);
+    });
+
+    socket.on('submitAnswer', ({ roomCode, teamName, answer }) => {
+        const room = rooms[roomCode];
+        if (!room || !room.teams[teamName] || room.teams[teamName].submittedAns) return;
         
-        document.getElementById('team-round-num').textContent = `Round Question ${questionNumber} of 10`;
-        document.getElementById('team-topic-display').textContent = topic;
+        room.teams[teamName].currentAnswer = answer;
+        room.teams[teamName].submittedAns = true;
+        io.to(room.hostId).emit('teamAnswerSubmitted', { teamName, wager: room.teams[teamName].currentWager, answer });
+    });
+
+    socket.on('evaluateTeam', ({ roomCode, teamName, isCorrect }) => {
+        const room = rooms[roomCode];
+        if (!room || !room.teams[teamName]) return;
+        if (isCorrect) room.teams[teamName].score += room.teams[teamName].currentWager;
+        io.to(room.hostId).emit('updateTeamsList', Object.keys(room.teams).map(name => ({ name, score: room.teams[name].score })));
+    });
+
+    socket.on('advanceQuestionIndex', ({ roomCode }) => {
